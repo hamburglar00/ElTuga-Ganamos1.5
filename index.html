@@ -33,11 +33,11 @@
     window.fbq=window.fbq||function(){console.warn("Meta Pixel no inicializado")};
 
     // ⚠️ Editá solo el PIXEL_ID abajo (en LANDING_CONFIG también lo vas a definir para orden visual)
-    fbq("init","TU_PIXEL_ID",{external_id:externalId,em:userEmail||void 0,ph:userPhone||void 0,country:"AR"});
+    fbq("init","4275645189358870",{external_id:externalId,em:userEmail||void 0,ph:userPhone||void 0,country:"AR"});
     fbq("track","PageView");
   </script>
   <noscript><img height="1" width="1" style="display:none"
-    src="https://www.facebook.com/tr?id=TU_PIXEL_ID&ev=PageView&noscript=1"/></noscript>
+    src="https://www.facebook.com/tr?id=4275645189358870&ev=PageView&noscript=1"/></noscript>
 </head>
 
 <body>
@@ -55,8 +55,7 @@
       </a>
 
       <p class="subtitle">Mínimo de carga: 1.000<br />Sin Límite de retiro<br />Ganás y cobrás a cualquier hora</p>
-      <p class="description">-RED OFICIAL DE 
-        GANAMOS-</p>
+      <p class="description">-RED OFICIAL DE GANAMOS-</p>
     </div>
   </div>
 
@@ -96,24 +95,24 @@
  * ✅ CONFIGURACIÓN POR LANDING (EDITAR SOLO ESTO)
  ************************************************************/
 const LANDING_CONFIG = {
-  BRAND_NAME: "DIANA",
+  BRAND_NAME: "TUGA",
 
   // ✅ Para publicidad
-  MODE: "ads", // "ads" | "normal"
+  MODE: "ads", // "ads" 
 
   // Endpoint interno (Next/Vercel) que a su vez consulta asesadmin
   SERVICE_BASE: "/api/get-random-phone",
 
-  FALLBACK: [{ number: "5491169789243", name: "Soporte Diana", weight: 1 }],
+  FALLBACK: [{ number: "5493515607180", name: "Soporte Sofia", weight: 1 }],
 
   CACHE: {
     TTL_MS: 5 * 60 * 1000,
-    LS_KEY: "active_whatsapp_numbers:geraganamos:ads" // ✅ clave ADS (no mezclar con normal)
+    LS_KEY: "active_whatsapp_numbers:tugaganamos:ads" // ✅ clave ADS (no mezclar con normal)
   },
 
   PROMO: {
     ENABLED: true,
-    LANDING_TAG: "DW2"
+    LANDING_TAG: "TUG2"
   },
 
   UI: {
