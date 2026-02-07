@@ -1,142 +1,182 @@
 // /api/get-random-phone.js
+// ✅ Devuelve 1 número listo para usar en wa.me
+// ✅ Plan A/B/C/D
+// ✅ Flag simple: SOLO ADS o ADS+NORMAL
 
-// ✅ Cache en memoria: último número válido entregado por ESTA API
-// (en serverless puede persistir, pero no es 100% garantizado)
+/**************************************************************
+ * ✅ CONFIG (EDITAR SOLO ESTO)
+ **************************************************************/
+
+const CONFIG = {
+  AGENCIES: [{ id: 20, name: "Sofi" }],
+  BRAND_NAME: "Sofi",
+
+  // Si querés minimizar fallback, ponelo en false:
+  // false => ADS primero, si no hay ADS usa NORMAL
+  ONLY_ADS_WHATSAPP: true,
+
+  SUPPORT_FALLBACK_ENABLED: false,
+  SUPPORT_FALLBACK_NUMBER: "",
+
+  // Más realista para serverless + upstream
+  TIMEOUT_MS: 2500,
+  MAX_RETRIES: 2,
+
+  UPSTREAM_BASE: "https://api.asesadmin.com/api/v1",
+};
+
 let LAST_GOOD_NUMBER = null;
 let LAST_GOOD_META = null;
 
+const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+function normalizePhone(raw) {
+  let phone = String(raw || "").replace(/\D+/g, "");
+  if (phone.length === 10) phone = "54" + phone;
+  if (!phone || phone.length < 8) return null;
+  return phone;
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  const started = Date.now();
+  try {
+    const res = await fetch(url, {
+      headers: { "Cache-Control": "no-store" },
+      signal: ctrl.signal,
+    });
+    const ms = Date.now() - started;
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}`);
+      err.http_status = res.status;
+      err.ms = ms;
+      throw err;
+    }
+    const json = await res.json();
+    return { json, ms, status: res.status };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 export default async function handler(req, res) {
   const startedAt = Date.now();
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+
+  const mode = String(req.query.mode || "normal").toLowerCase();
 
   try {
-    /************ CONFIG POR LANDING ************/
-    const AGENCIES = [{ id: 20, name: "Sofia" }];
-
-    const BRAND_NAME = "Sofia";
-    const FALLBACK_ADS = "5493517316278";
-    const FALLBACK_NORMAL = "5493517316278";
-
-    const TIMEOUT_MS = 5000; // ⏱️ timeout real
-    const MAX_RETRIES = 2;   // 🔁 reintentos
-    /*******************************************/
-
-    const mode = String(req.query.mode || "normal").toLowerCase();
-
-    // 1️⃣ Elegimos agency al azar
-    const agency = AGENCIES[Math.floor(Math.random() * AGENCIES.length)];
+    const agency = CONFIG.AGENCIES[Math.floor(Math.random() * CONFIG.AGENCIES.length)];
     if (!agency?.id) throw new Error("No hay agencies configuradas");
 
-    const API_URL = `https://api.asesadmin.com/api/v1/agency/${agency.id}/random-contact`;
+    const API_URL = `${CONFIG.UPSTREAM_BASE}/agency/${agency.id}/random-contact`;
 
-    // 2️⃣ Fetch con timeout + retry
+    // Plan A: upstream con retries
     let data = null;
-    let lastFetchError = null;
+    let upstreamMeta = { attempts: 0, last_error: null, ms: null, status: null };
 
-    for (let attempt = 1; attempt <= MAX_RETRIES && !data; attempt++) {
+    for (let attempt = 1; attempt <= CONFIG.MAX_RETRIES && !data; attempt++) {
+      upstreamMeta.attempts = attempt;
       try {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-
-        const response = await fetch(API_URL, {
-          headers: { "Cache-Control": "no-store" },
-          signal: ctrl.signal,
-        });
-
-        clearTimeout(t);
-
-        if (!response.ok) throw new Error(`Error HTTP ${response.status}`);
-        data = await response.json();
+        const r = await fetchJsonWithTimeout(API_URL, CONFIG.TIMEOUT_MS);
+        data = r.json;
+        upstreamMeta.ms = r.ms;
+        upstreamMeta.status = r.status;
       } catch (e) {
-        lastFetchError = e;
+        upstreamMeta.last_error = e?.message || "unknown";
+        upstreamMeta.status = e?.http_status || null;
       }
     }
 
     if (!data) {
-      throw new Error(
-        `No se pudo obtener data de api. Último error: ${lastFetchError?.message || "unknown"}`
-      );
+      throw new Error(`Upstream fail: ${upstreamMeta.last_error || "unknown"}`);
     }
 
-    // 3️⃣ Jerarquía pedida:
-    //    A) ads.whatsapp
-    //    B) whatsapp
+    // Plan B: elegir número
     const adsList = Array.isArray(data?.ads?.whatsapp) ? data.ads.whatsapp : [];
     const normalList = Array.isArray(data?.whatsapp) ? data.whatsapp : [];
 
-    const pickRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
-
-    let chosenSource = null;
     let rawPhone = null;
+    let chosenSource = null;
 
-    if (adsList.length > 0) {
+    if (CONFIG.ONLY_ADS_WHATSAPP) {
+      if (!adsList.length) throw new Error("ONLY_ADS_WHATSAPP activo y ads.whatsapp vacío");
       rawPhone = pickRandom(adsList);
       chosenSource = "ads.whatsapp";
-    } else if (normalList.length > 0) {
-      rawPhone = pickRandom(normalList);
-      chosenSource = "whatsapp";
     } else {
-      // 4️⃣ Si ambas listas vienen vacías → forzamos error para entrar al catch
-      throw new Error("Listas vacías: ads.whatsapp y whatsapp");
+      // ADS primero, después normal
+      if (adsList.length) {
+        rawPhone = pickRandom(adsList);
+        chosenSource = "ads.whatsapp";
+      } else if (normalList.length) {
+        rawPhone = pickRandom(normalList);
+        chosenSource = "whatsapp";
+      } else {
+        throw new Error("Sin números disponibles (ads + normal)");
+      }
     }
 
-    // 5️⃣ Normalizar número
-    let phone = String(rawPhone || "").replace(/\D+/g, "");
-    if (phone.length === 10) phone = "54" + phone;
+    const phone = normalizePhone(rawPhone);
+    if (!phone) throw new Error(`Número inválido desde ${chosenSource}`);
 
-    if (!phone || phone.length < 8) {
-      throw new Error(`Número inválido desde ${chosenSource}`);
-    }
-
-    // ✅ Guardamos “último bueno” (plan C)
+    // Plan C: cache “último bueno”
     LAST_GOOD_NUMBER = phone;
     LAST_GOOD_META = {
       agency_id: agency.id,
       source: chosenSource,
+      only_ads: CONFIG.ONLY_ADS_WHATSAPP,
       ts: new Date().toISOString(),
+      upstream: upstreamMeta,
+      ads_len: adsList.length,
+      normal_len: normalList.length,
     };
-
-    res.setHeader("Cache-Control", "no-store, max-age=0");
 
     return res.status(200).json({
       number: phone,
-      name: mode === "ads" ? `${BRAND_NAME}_ADS` : BRAND_NAME,
+      name: mode === "ads" ? `${CONFIG.BRAND_NAME}_ADS` : CONFIG.BRAND_NAME,
       weight: 1,
       mode,
       agency_id: agency.id,
-
-      // info útil (podés borrar si no querés)
       chosen_from: chosenSource,
+      only_ads: CONFIG.ONLY_ADS_WHATSAPP,
       ms: Date.now() - startedAt,
+      upstream: upstreamMeta,
     });
   } catch (err) {
-    const mode = String(req.query.mode || "normal").toLowerCase();
-
-    // 6️⃣ Plan C: si existe último número bueno, lo devolvemos ANTES del fallback
+    // Plan C respuesta: último bueno si existe
     if (LAST_GOOD_NUMBER && String(LAST_GOOD_NUMBER).length >= 8) {
-      res.setHeader("Cache-Control", "no-store, max-age=0");
-
       return res.status(200).json({
         number: LAST_GOOD_NUMBER,
         name: "LastGoodCache",
         weight: 1,
         mode,
-
         cache: true,
         last_good_meta: LAST_GOOD_META || null,
         error: err?.message || "unknown_error",
+        ms: Date.now() - startedAt,
       });
     }
 
-    // 7️⃣ Plan D: recién acá fallback hardcodeado
-    res.setHeader("Cache-Control", "no-store, max-age=0");
+    // Plan D: soporte
+    if (CONFIG.SUPPORT_FALLBACK_ENABLED) {
+      return res.status(200).json({
+        number: CONFIG.SUPPORT_FALLBACK_NUMBER,
+        name: "SupportFallback",
+        weight: 1,
+        mode,
+        fallback: true,
+        error: err?.message || "unknown_error",
+        ms: Date.now() - startedAt,
+      });
+    }
 
-    return res.status(200).json({
-      number: mode === "ads" ? FALLBACK_ADS : FALLBACK_NORMAL,
-      name: "Fallback",
-      weight: 1,
+    return res.status(503).json({
+      error: "NO_NUMBER_AVAILABLE",
       mode,
-      fallback: true,
-      error: err?.message || "unknown_error",
+      details: err?.message || "unknown_error",
+      ms: Date.now() - startedAt,
     });
   }
 }
