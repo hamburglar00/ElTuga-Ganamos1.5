@@ -10,11 +10,11 @@ export default async function handler(req, res) {
 
   try {
     /************ CONFIG POR LANDING ************/
-    const AGENCIES = [{ id: 16, name: "Sofia" }];
+    const AGENCIES = [{ id: 20, name: "Sofia" }];
 
     const BRAND_NAME = "Sofia";
-    const FALLBACK_ADS = "5493515607180";
-    const FALLBACK_NORMAL = "5493515607180";
+    const FALLBACK_ADS = "5493517316278";
+    const FALLBACK_NORMAL = "5493517316278";
 
     const TIMEOUT_MS = 5000; // ⏱️ timeout real
     const MAX_RETRIES = 2;   // 🔁 reintentos
